@@ -1,0 +1,1068 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TropMail API",
+    "description": "Private inbound email API for TropMail.\n\nCreate addresses that only receive mail. List, search, read, and update messages; scan and download attachments. Official SDKs and MCP use the same contract.\n\n## Base URL\n- **Production**: `https://api.tropmail.com/api/v1`\n\n## Authentication\nAPI keys from the TropMail dashboard (Pro and above). Keys are exactly 32 alphanumeric characters. Send `Authorization: Bearer <API_KEY>`.\n\n## Rate limiting\nPer mailbox by plan (Pro 3 / Ultimate 10 / Enterprise 50 requests per second). Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`. On **429**, honor `Retry-After`.\n\n## Response envelope\nJSON responses use `{success,message,data,error}`. Correlate with `X-Request-ID`.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "TropMail Support",
+      "url": "https://tropmail.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.tropmail.com/api/v1",
+      "description": "Production server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Health check endpoints"
+    },
+    {
+      "name": "Authentication",
+      "description": "API key validation and tier information"
+    },
+    {
+      "name": "Mailbox",
+      "description": "Mailbox summary and statistics"
+    },
+    {
+      "name": "Emails",
+      "description": "Email listing, details, and status updates"
+    },
+    {
+      "name": "Attachments",
+      "description": "Attachment metadata, scanning, and downloading"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API_KEY",
+        "description": "API key authentication. Use format: `Bearer <API_KEY>` or just `<API_KEY>`. \n\n**Note**: All `/api/v1/*` endpoints except `GET /api/v1/health` require an API key."
+      }
+    },
+    "schemas": {
+      "StandardResponse": {
+        "type": "object",
+        "description": "Standard API response envelope",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "`true` for successful requests, `false` for errors."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable summary for UI toasts/logging."
+          },
+          "data": {
+            "type": "object",
+            "description": "The actual payload for successful responses, or `null` on errors."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Error message string if `success` is false."
+          }
+        }
+      },
+      "EmailListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Email UUID"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Email timestamp (RFC3339)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "from": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Sender display name"
+              },
+              "address": {
+                "type": "string",
+                "format": "email",
+                "description": "Sender email address"
+              }
+            }
+          },
+          "body": {
+            "type": "string",
+            "description": "Preview snippet (first 100 chars)"
+          },
+          "attachmentsCount": {
+            "type": "integer",
+            "description": "Number of attachments"
+          },
+          "email_state": {
+            "type": "string",
+            "enum": [
+              "Open",
+              "Close"
+            ],
+            "description": "API friendlier state (Open/Close). DB stores Opened/Closed."
+          },
+          "action_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "Favorite",
+              "Block",
+              "Phishing",
+              "Scam",
+              "Malicious",
+              null
+            ],
+            "description": "API friendlier action (Favorite=Saved, Block=Blocked, …)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Convenience field for UI. If `action_status` is set, matches that; otherwise matches `email_state`."
+          }
+        }
+      },
+      "EmailDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/EmailListItem"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "to": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "address": {
+                      "type": "string",
+                      "format": "email"
+                    }
+                  }
+                }
+              },
+              "cc": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "address": {
+                      "type": "string",
+                      "format": "email"
+                    }
+                  }
+                }
+              },
+              "content": {
+                "type": "string",
+                "description": "Body content in the requested view (text/html/markdown)."
+              },
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Attachment"
+                }
+              },
+              "headers": {
+                "type": "object",
+                "description": "Parsed email headers"
+              },
+              "security": {
+                "type": "object",
+                "description": "Security analysis results (SPF/DKIM/DMARC/spam score)"
+              }
+            }
+          }
+        ]
+      },
+      "Attachment": {
+        "type": "object",
+        "properties": {
+          "attachment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Size in bytes"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "scan_status": {
+            "type": "string",
+            "enum": [
+              "NotScanned",
+              "Processing",
+              "Clean",
+              "Malicious",
+              "Suspicious",
+              "Unknown"
+            ],
+            "description": "Current virus scan status"
+          },
+          "scan_result": {
+            "$ref": "#/components/schemas/ScanReport",
+            "description": "Shaped scan report when a scan has completed (or failed)."
+          },
+          "scanned_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "MailboxSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "opened_count": {
+            "type": "integer"
+          },
+          "closed_count": {
+            "type": "integer"
+          },
+          "favorite_count": {
+            "type": "integer"
+          }
+        }
+      },
+      "ScanReport": {
+        "type": "object",
+        "description": "Malware scan report for an attachment (engine summaries and optional file hashes).",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "NotScanned",
+              "Processing",
+              "Clean",
+              "Malicious",
+              "Suspicious",
+              "Unknown"
+            ]
+          },
+          "scannedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stats": {
+            "type": "object",
+            "properties": {
+              "harmless": {
+                "type": "integer"
+              },
+              "malicious": {
+                "type": "integer"
+              },
+              "suspicious": {
+                "type": "integer"
+              },
+              "undetected": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "harmless",
+              "malicious",
+              "suspicious",
+              "undetected"
+            ]
+          },
+          "engines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "engine": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "harmless",
+                    "malicious",
+                    "suspicious",
+                    "undetected",
+                    "timeout"
+                  ]
+                },
+                "result": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "engine",
+                "category",
+                "result"
+              ]
+            }
+          },
+          "hashes": {
+            "type": "object",
+            "properties": {
+              "sha256": {
+                "type": "string"
+              },
+              "sha1": {
+                "type": "string"
+              },
+              "md5": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "type": "string",
+            "description": "Machine-readable failure code when the scan could not complete"
+          }
+        },
+        "required": [
+          "status",
+          "scannedAt",
+          "stats",
+          "engines"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health check",
+        "description": "Service status check. Returns service version and timestamp. **No authentication required.**",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/validate": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Validate API key",
+        "description": "Confirm the API key is valid and retrieve the mailbox ID and tier. ",
+        "responses": {
+          "200": {
+            "description": "API key is valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mailbox_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "tier": {
+                          "type": "string",
+                          "enum": [
+                            "Basic",
+                            "Pro",
+                            "Ultimate",
+                            "Enterprise"
+                          ],
+                          "description": "Account tier. Basic/guest access is denied by middleware (403)."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid API key"
+          },
+          "403": {
+            "description": "Tier restriction (Basic/guest/old/banned)"
+          }
+        }
+      }
+    },
+    "/mailbox": {
+      "get": {
+        "tags": [
+          "Mailbox"
+        ],
+        "summary": "Get mailbox summary",
+        "description": "Retrieve summary statistics for the logged-in mailbox (email address, counts). \n\nStandard success envelope.",
+        "responses": {
+          "200": {
+            "description": "Mailbox retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/MailboxSummary"
+                    },
+                    "error": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/emails": {
+      "post": {
+        "tags": [
+          "Emails"
+        ],
+        "summary": "List emails",
+        "description": "Fetch inbox list with pagination and status filtering. \n\nStandard success envelope.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 10,
+                    "description": "Items per page (1-100)"
+                  },
+                  "page": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 1,
+                    "description": "Page number (>= 1)"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "all",
+                      "Open",
+                      "Close",
+                      "Favorite",
+                      "Block",
+                      "Phishing",
+                      "Scam",
+                      "Malicious"
+                    ],
+                    "default": "all",
+                    "description": "Filter by friendlier aliases (DB names also accepted by API)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Emails retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "emails": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/EmailListItem"
+                          }
+                        },
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "page": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer",
+                          "description": "Denormalized opened+closed count from mailboxes"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/emails/search": {
+      "post": {
+        "tags": [
+          "Emails"
+        ],
+        "summary": "Search emails",
+        "description": "Full-text search across the authenticated mailbox.\n\nRequires a non-empty `query`. Pagination mirrors list emails (`limit` 1-100, `page` >= 1).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "query"
+                ],
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Full-text search query"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 10
+                  },
+                  "page": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Search completed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "emails": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/EmailListItem"
+                          }
+                        },
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "page": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "error": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid query"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Tier not allowed"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/email/{id}": {
+      "get": {
+        "tags": [
+          "Emails"
+        ],
+        "summary": "Get email detail",
+        "description": "Retrieve full email details including content, headers, and attachments. Defaults to HTML view if no view specified.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "timestamp",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Optional email timestamp from list/detail (speeds up lookup)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Email retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/EmailDetail"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Emails"
+        ],
+        "summary": "Update email actions",
+        "description": "Update `email_state` (Open/Close) or `action_status` (Favorite, Delete, Block, etc.).\n\n- Provide **at least one** field in the body.\n- Optional `timestamp` (RFC3339) from list/detail speeds up the update.\n- `Block` marks the message and blocks that sender from future delivery to the mailbox.\n- To clear `action_status`, send an empty string `\"\"` (also unblocks the sender if it was Blocked).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email_state": {
+                    "type": "string",
+                    "enum": [
+                      "Open",
+                      "Close"
+                    ],
+                    "description": "Friendlier API state (Open/Close)"
+                  },
+                  "action_status": {
+                    "type": "string",
+                    "enum": [
+                      "Favorite",
+                      "Delete",
+                      "Block",
+                      "Phishing",
+                      "Scam",
+                      "Malicious",
+                      ""
+                    ],
+                    "description": "Apply action. Empty string clears status."
+                  },
+                  "timestamp": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Optional email timestamp from list/detail (speeds up lookup)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Email updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/email/{id}/{view}": {
+      "get": {
+        "tags": [
+          "Emails"
+        ],
+        "summary": "Get email detail in specific view",
+        "description": "Retrieve email details with content rendered in a specific format (`text`, `html`, `markdown`).\n\nFor `markdown`: returns markdown immediately when already available. If not, conversion starts automatically and this request waits until it finishes (up to ~60s). Concurrent callers share the same conversion. Timeout → 504; retry the same GET.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "view",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "text",
+                "html",
+                "markdown"
+              ]
+            },
+            "description": "Content format"
+          },
+          {
+            "name": "timestamp",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Optional email timestamp from list/detail (speeds up lookup)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Email retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/EmailDetail"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/attachment/{id}": {
+      "get": {
+        "tags": [
+          "Attachments"
+        ],
+        "summary": "Get attachment metadata",
+        "description": "Retrieve metadata for a specific attachment, including scan_status and shaped scan_result when available.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Attachment retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Attachment"
+                    },
+                    "error": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/attachment/{id}/scan": {
+      "post": {
+        "tags": [
+          "Attachments"
+        ],
+        "summary": "Scan attachment",
+        "description": "Start a malware scan for an attachment.\n\n- If already `Processing`, returns success.\n- If `NotScanned`, marks `Processing` and starts the scan.\n- If a scan already finished, returns the existing status.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scan initiated or already in progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/attachment/{id}/download": {
+      "get": {
+        "tags": [
+          "Attachments"
+        ],
+        "summary": "Download attachment bytes",
+        "description": "Download attachment file bytes. Requires Bearer auth. Response is the raw file body, not a JSON envelope.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Attachment file bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "attachment; filename=\"...\""
+              }
+            }
+          },
+          "400": {
+            "description": "Attachment unavailable"
+          },
+          "404": {
+            "description": "Attachment not found"
+          }
+        }
+      }
+    },
+    "/email/{id}/scan-attachments": {
+      "post": {
+        "tags": [
+          "Attachments"
+        ],
+        "summary": "Scan all attachments",
+        "description": "Trigger scans for **all** attachments in an email (only those currently `NotScanned`).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scans initiated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/email/{id}/download-attachments": {
+      "get": {
+        "tags": [
+          "Attachments"
+        ],
+        "summary": "List attachments for download",
+        "description": "List attachments on an email with an `available` flag. Fetch bytes via GET /attachment/{id}/download for each id.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Download links retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

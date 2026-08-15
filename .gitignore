@@ -1,0 +1,6 @@
+*.exe
+*.test
+*.out
+vendor/
+.DS_Store
+PUBLISH.md

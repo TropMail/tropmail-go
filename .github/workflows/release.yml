@@ -1,0 +1,38 @@
+name: Release
+
+# Pushing tag v1.2.3 publishes the Go module. proxy.golang.org indexes the tag
+# from this repository; there is no PyPI/npm equivalent and no extra token.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
+      - name: Warm the module proxy
+        run: |
+          curl -fsS "https://proxy.golang.org/github.com/tropmail/tropmail-go/@v/${GITHUB_REF_NAME}.info" \
+            || echo "The proxy has not indexed ${GITHUB_REF_NAME} yet; it will catch up."
