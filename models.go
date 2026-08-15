@@ -82,12 +82,12 @@ type ScanEngineResult struct {
 
 // ScanReport is the shaped malware report stored in scan_result.
 type ScanReport struct {
-	Status    ScanStatus       `json:"status"`
-	ScannedAt string           `json:"scannedAt"`
-	Stats     ScanReportStats  `json:"stats"`
+	Status    ScanStatus         `json:"status"`
+	ScannedAt string             `json:"scannedAt"`
+	Stats     ScanReportStats    `json:"stats"`
 	Engines   []ScanEngineResult `json:"engines"`
-	Hashes    *ScanFileHashes  `json:"hashes,omitempty"`
-	Error     string           `json:"error,omitempty"`
+	Hashes    *ScanFileHashes    `json:"hashes,omitempty"`
+	Error     string             `json:"error,omitempty"`
 }
 
 // ScanReportStats aggregates engine verdict counts.
