@@ -27,7 +27,7 @@ func TestAllStopsOnShortPage(t *testing.T) {
 	})
 
 	count := 0
-	for _, err := range client.Emails.All(context.Background(), ListOptions{Limit: 10}) {
+	for _, err := range client.Emails.All(context.Background(), ListOptions{MailboxID: testMailboxID, Limit: 10}) {
 		if err != nil {
 			t.Fatalf("All: %v", err)
 		}
@@ -47,7 +47,7 @@ func TestAllStopsOnEmptyPage(t *testing.T) {
 		writeEnvelope(t, w, http.StatusOK, emailPage(0, 42))
 	})
 
-	for _, err := range client.Emails.All(context.Background(), ListOptions{Limit: 10}) {
+	for _, err := range client.Emails.All(context.Background(), ListOptions{MailboxID: testMailboxID, Limit: 10}) {
 		if err != nil {
 			t.Fatalf("All: %v", err)
 		}
@@ -65,7 +65,7 @@ func TestAllYieldsErrorAndStops(t *testing.T) {
 
 	iterations := 0
 	var seen error
-	for _, err := range client.Emails.All(context.Background(), ListOptions{}) {
+	for _, err := range client.Emails.All(context.Background(), ListOptions{MailboxID: testMailboxID}) {
 		iterations++
 		seen = err
 	}
@@ -84,7 +84,7 @@ func TestAllStopsWhenCallerBreaks(t *testing.T) {
 	})
 
 	count := 0
-	for range client.Emails.All(context.Background(), ListOptions{Limit: 10}) {
+	for range client.Emails.All(context.Background(), ListOptions{MailboxID: testMailboxID, Limit: 10}) {
 		count++
 		if count == 3 {
 			break
@@ -110,7 +110,7 @@ func TestSearchAllPagesDespiteZeroTotal(t *testing.T) {
 	})
 
 	count := 0
-	for _, err := range client.Emails.SearchAll(context.Background(), "q", ListOptions{Limit: 5}) {
+	for _, err := range client.Emails.SearchAll(context.Background(), "q", ListOptions{MailboxID: testMailboxID, Limit: 5}) {
 		if err != nil {
 			t.Fatalf("SearchAll: %v", err)
 		}
@@ -132,7 +132,7 @@ func TestRetriesThenSucceeds(t *testing.T) {
 		writeEnvelope(t, w, http.StatusOK, Mailbox{ID: "m1", Email: "a@b.dev"})
 	}, WithMaxRetries(3))
 
-	mailbox, err := client.Mailbox.Get(context.Background())
+	mailbox, err := client.Mailboxes.Get(context.Background(), testMailboxID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestGivesUpAfterRetryBudget(t *testing.T) {
 		writeError(w, http.StatusTooManyRequests, "Rate limit exceeded")
 	}, WithMaxRetries(2))
 
-	if _, err := client.Mailbox.Get(context.Background()); !IsRateLimit(err) {
+	if _, err := client.Mailboxes.Get(context.Background(), testMailboxID); !IsRateLimit(err) {
 		t.Fatalf("expected a rate limit error, got %v", err)
 	}
 	if calls != 3 {
@@ -164,7 +164,7 @@ func TestMutationsAreNotRetried(t *testing.T) {
 		writeError(w, http.StatusServiceUnavailable, "Database unavailable")
 	}, WithMaxRetries(3))
 
-	if _, err := client.Emails.Favorite(context.Background(), "abc"); err == nil {
+	if _, err := client.Emails.Favorite(context.Background(), testMailboxID, "abc"); err == nil {
 		t.Fatal("expected an error")
 	}
 	if calls != 1 {
@@ -182,7 +182,7 @@ func TestReadOnlyPostsAreRetried(t *testing.T) {
 		writeEnvelope(t, w, http.StatusOK, emailPage(0, 0))
 	}, WithMaxRetries(2))
 
-	if _, err := client.Emails.List(context.Background(), ListOptions{}); err != nil {
+	if _, err := client.Emails.List(context.Background(), ListOptions{MailboxID: testMailboxID}); err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if calls != 2 {
@@ -200,7 +200,7 @@ func TestMarkdownRetriesGatewayTimeout(t *testing.T) {
 		writeEnvelope(t, w, http.StatusOK, EmailDetail{ID: "abc", Content: "# Heading"})
 	}, WithMaxRetries(3))
 
-	detail, err := client.Emails.GetMarkdown(context.Background(), "abc", "")
+	detail, err := client.Emails.GetMarkdown(context.Background(), testMailboxID, "abc", "")
 	if err != nil {
 		t.Fatalf("GetMarkdown: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestNonRetryableStatusIsNotRetried(t *testing.T) {
 		writeError(w, http.StatusNotFound, "Email not found")
 	}, WithMaxRetries(3))
 
-	if _, err := client.Emails.Get(context.Background(), "abc", GetOptions{}); !IsNotFound(err) {
+	if _, err := client.Emails.Get(context.Background(), testMailboxID, "abc", GetOptions{}); !IsNotFound(err) {
 		t.Fatalf("expected 404, got %v", err)
 	}
 	if calls != 1 {

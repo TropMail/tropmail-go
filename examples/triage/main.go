@@ -28,24 +28,30 @@ func main() {
 	}
 	ctx := context.Background()
 
-	// The iterator pages for you and stops on the first short page. Requests
-	// are paced to the tier's rate limit, so a full walk never collects 429s.
+	listed, err := client.Mailboxes.List(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(listed.Mailboxes) == 0 {
+		log.Fatal("this API key has no mailboxes")
+	}
+	mailboxID := listed.Mailboxes[0].ID
+
 	favorited, blocked := 0, 0
-	for email, err := range client.Emails.All(ctx, tropmail.ListOptions{}) {
+	for email, err := range client.Emails.All(ctx, tropmail.ListOptions{MailboxID: mailboxID}) {
 		if err != nil {
 			log.Fatal(err)
 		}
 
 		switch {
 		case email.ActionStatus != nil && *email.ActionStatus == tropmail.ActionPhishing:
-			if _, err := client.Emails.Block(ctx, email.ID); err != nil {
+			if _, err := client.Emails.Block(ctx, mailboxID, email.ID); err != nil {
 				log.Fatalf("block %s: %v", email.ID, err)
 			}
 			blocked++
 
 		case strings.Contains(strings.ToLower(email.Subject), strings.ToLower(term)):
-			if _, err := client.Emails.Favorite(ctx, email.ID); err != nil {
-				// A message deleted mid-walk is expected, not fatal.
+			if _, err := client.Emails.Favorite(ctx, mailboxID, email.ID); err != nil {
 				if tropmail.IsNotFound(err) {
 					continue
 				}
@@ -58,7 +64,7 @@ func main() {
 	fmt.Printf("favorited %d matching %q, blocked %d phishing senders\n",
 		favorited, term, blocked)
 
-	if _, err := client.Mailbox.Get(ctx); err != nil {
+	if _, err := client.Mailboxes.Get(ctx, mailboxID); err != nil {
 		var apiErr *tropmail.Error
 		if errors.As(err, &apiErr) && apiErr.Status == 429 {
 			fmt.Println("Rate limited; retry after", apiErr.RetryAfter)

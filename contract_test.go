@@ -1,5 +1,9 @@
 // Fails when the SDK stops covering every route in the OpenAPI spec.
 //
+// Docs list inboxes at /mailboxes and every other operation at /mailbox/{id}.
+// The client still calls the /mailboxes/{id} alias; those requests are mapped
+// onto the documented singular templates.
+//
 // The spec lives in this module (spec/openapi.json). When Docs/ is checked
 // out next to Sdk/ in the TropMail workspace, the test also asserts they match.
 package tropmail
@@ -31,17 +35,23 @@ var pathTemplates = []struct {
 	pattern  *regexp.Regexp
 	template string
 }{
-	{regexp.MustCompile(`^/email/[^/]+/(text|html|markdown)$`), "/email/{id}/{view}"},
-	{regexp.MustCompile(`^/email/[^/]+/scan-attachments$`), "/email/{id}/scan-attachments"},
-	{regexp.MustCompile(`^/email/[^/]+/download-attachments$`), "/email/{id}/download-attachments"},
-	{regexp.MustCompile(`^/attachment/[^/]+/scan$`), "/attachment/{id}/scan"},
-	{regexp.MustCompile(`^/attachment/[^/]+/download$`), "/attachment/{id}/download"},
-	{regexp.MustCompile(`^/attachment/[^/]+$`), "/attachment/{id}"},
-	{regexp.MustCompile(`^/email/[^/]+$`), "/email/{id}"},
+	{regexp.MustCompile(`^/mailbox/[^/]+/emails/[^/]+/(text|html|markdown)$`), "/mailbox/{id}/emails/{emailId}/{view}"},
+	{regexp.MustCompile(`^/mailbox/[^/]+/emails/search$`), "/mailbox/{id}/emails/search"},
+	{regexp.MustCompile(`^/mailbox/[^/]+/emails/[^/]+/scan-attachments$`), "/mailbox/{id}/emails/{emailId}/scan-attachments"},
+	{regexp.MustCompile(`^/mailbox/[^/]+/emails/[^/]+/download-attachments$`), "/mailbox/{id}/emails/{emailId}/download-attachments"},
+	{regexp.MustCompile(`^/mailbox/[^/]+/attachments/[^/]+/scan$`), "/mailbox/{id}/attachments/{attId}/scan"},
+	{regexp.MustCompile(`^/mailbox/[^/]+/attachments/[^/]+/download$`), "/mailbox/{id}/attachments/{attId}/download"},
+	{regexp.MustCompile(`^/mailbox/[^/]+/attachments/[^/]+$`), "/mailbox/{id}/attachments/{attId}"},
+	{regexp.MustCompile(`^/mailbox/[^/]+/emails/[^/]+$`), "/mailbox/{id}/emails/{emailId}"},
+	{regexp.MustCompile(`^/mailbox/[^/]+/emails$`), "/mailbox/{id}/emails"},
+	{regexp.MustCompile(`^/mailbox/[^/]+$`), "/mailbox/{id}"},
 }
 
 func templatize(path string) string {
 	path = strings.TrimPrefix(path, "/api/v1")
+	if strings.HasPrefix(path, "/mailboxes/") {
+		path = "/mailbox/" + strings.TrimPrefix(path, "/mailboxes/")
+	}
 	for _, rule := range pathTemplates {
 		if rule.pattern.MatchString(path) {
 			return rule.template
@@ -93,7 +103,7 @@ var anyPayload = map[string]any{
 	"timestamp":     "2026-01-01T00:00:00Z",
 	"from":          map[string]any{"name": "Sender", "address": "sender@example.com"},
 	"attachment_id": "22222222-2222-2222-2222-222222222222",
-	"status":        "ok",
+	"mailboxes":     []any{},
 }
 
 func exerciseEveryMethod(t *testing.T) map[string]bool {
@@ -123,31 +133,31 @@ func exerciseEveryMethod(t *testing.T) map[string]bool {
 		}
 	}
 
-	_, err := client.Mailbox.Health(ctx)
+	_, err := client.Health(ctx)
 	mustSucceed("Health", err)
-	_, err = client.Mailbox.Validate(ctx)
-	mustSucceed("Validate", err)
-	_, err = client.Mailbox.Get(ctx)
-	mustSucceed("Mailbox.Get", err)
-	_, err = client.Emails.List(ctx, ListOptions{})
+	_, err = client.Mailboxes.List(ctx)
+	mustSucceed("Mailboxes.List", err)
+	_, err = client.Mailboxes.Get(ctx, testMailboxID)
+	mustSucceed("Mailboxes.Get", err)
+	_, err = client.Emails.List(ctx, ListOptions{MailboxID: testMailboxID})
 	mustSucceed("Emails.List", err)
-	_, err = client.Emails.Search(ctx, "q", ListOptions{})
+	_, err = client.Emails.Search(ctx, "q", ListOptions{MailboxID: testMailboxID})
 	mustSucceed("Emails.Search", err)
-	_, err = client.Emails.Get(ctx, "id", GetOptions{})
+	_, err = client.Emails.Get(ctx, testMailboxID, "id", GetOptions{})
 	mustSucceed("Emails.Get", err)
-	_, err = client.Emails.Get(ctx, "id", GetOptions{View: ViewMarkdown})
+	_, err = client.Emails.Get(ctx, testMailboxID, "id", GetOptions{View: ViewMarkdown})
 	mustSucceed("Emails.Get markdown", err)
-	_, err = client.Emails.SetState(ctx, "id", StateOpen)
+	_, err = client.Emails.SetState(ctx, testMailboxID, "id", StateOpen)
 	mustSucceed("Emails.SetState", err)
-	_, err = client.Emails.ScanAttachments(ctx, "id")
+	_, err = client.Emails.ScanAttachments(ctx, testMailboxID, "id")
 	mustSucceed("Emails.ScanAttachments", err)
-	_, err = client.Emails.DownloadAttachments(ctx, "id")
+	_, err = client.Emails.DownloadAttachments(ctx, testMailboxID, "id")
 	mustSucceed("Emails.DownloadAttachments", err)
-	_, err = client.Attachments.Get(ctx, "aid")
+	_, err = client.Attachments.Get(ctx, testMailboxID, "aid")
 	mustSucceed("Attachments.Get", err)
-	_, err = client.Attachments.Scan(ctx, "aid")
+	_, err = client.Attachments.Scan(ctx, testMailboxID, "aid")
 	mustSucceed("Attachments.Scan", err)
-	body, err := client.Attachments.Open(ctx, "aid")
+	body, err := client.Attachments.Open(ctx, testMailboxID, "aid")
 	mustSucceed("Attachments.Open", err)
 	_ = body.Close()
 

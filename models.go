@@ -59,7 +59,7 @@ type Email struct {
 	Timestamp        string        `json:"timestamp"`
 	Subject          string        `json:"subject"`
 	From             Address       `json:"from"`
-	Body             string        `json:"body"`
+	Preview          string        `json:"preview"`
 	AttachmentsCount int           `json:"attachmentsCount"`
 	Status           string        `json:"status"`
 	EmailState       EmailState    `json:"email_state"`
@@ -148,13 +148,18 @@ type ActionResult struct {
 	SenderEmail  string        `json:"sender_email,omitempty"`
 }
 
-// Mailbox is the summary returned by Mailbox.Get.
+// Mailbox is the summary returned by Mailboxes.Get.
 type Mailbox struct {
 	ID            string `json:"id"`
 	Email         string `json:"email"`
 	OpenedCount   int    `json:"opened_count"`
 	ClosedCount   int    `json:"closed_count"`
 	FavoriteCount int    `json:"favorite_count"`
+}
+
+// MailboxList is the payload of GET /mailboxes.
+type MailboxList struct {
+	Mailboxes []Mailbox `json:"mailboxes"`
 }
 
 // Attachment is the metadata returned by Attachments.Get.
@@ -195,12 +200,6 @@ type Scan struct {
 	MimeType     *string    `json:"mime_type,omitempty"`
 	ScanStatus   ScanStatus `json:"scan_status"`
 	ScannedAt    *string    `json:"scanned_at,omitempty"`
-}
-
-// Validation reports the mailbox and tier behind an API key.
-type Validation struct {
-	MailboxID string `json:"mailbox_id"`
-	Tier      string `json:"tier"`
 }
 
 // Health is the service liveness payload.

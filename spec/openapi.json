@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "TropMail API",
-    "description": "Private inbound email API for TropMail.\n\nCreate addresses that only receive mail. List, search, read, and update messages; scan and download attachments. Official SDKs and MCP use the same contract.\n\n## Base URL\n- **Production**: `https://api.tropmail.com/api/v1`\n\n## Authentication\nAPI keys from the TropMail dashboard (Pro and above). Keys are exactly 32 alphanumeric characters. Send `Authorization: Bearer <API_KEY>`.\n\n## Rate limiting\nPer mailbox by plan (Pro 3 / Ultimate 10 / Enterprise 50 requests per second). Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`. On **429**, honor `Retry-After`.\n\n## Response envelope\nJSON responses use `{success,message,data,error}`. Correlate with `X-Request-ID`.",
+    "description": "Private inbound email API for TropMail.\n\nCreate addresses that only receive mail. List, search, read, and update messages; scan and download attachments. Official SDKs and MCP use the same contract.\n\n## Base URL\n- **Production**: `https://api.tropmail.com/api/v1`\n\n## Authentication\nAPI keys from the TropMail dashboard (Pro and above). Keys are 32 alphanumeric characters, optionally prefixed with `tm_live_`. Send `Authorization: Bearer <API_KEY>`.\n\n## Rate limiting\nPer **account** by plan (Pro 3 / Ultimate 10 / Enterprise 50 requests per second) — not per mailbox or per key. Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`. On **429**, honor `Retry-After`.\n\n## Response envelope\nJSON responses use `{success,message,data,error}`. `success` is `true` and `error` is `null` on 200; on errors `success` is `false`, `data` is `null`, and `message`/`error` explain what happened. Correlate with `X-Request-ID`.\n\nMCP tools receive the unwrapped `data` object, not this envelope. Attachment **download** routes return raw bytes, not JSON.",
     "version": "1.0.0",
     "contact": {
       "name": "TropMail Support",
@@ -21,12 +21,8 @@
       "description": "Health check endpoints"
     },
     {
-      "name": "Authentication",
-      "description": "API key validation and tier information"
-    },
-    {
       "name": "Mailbox",
-      "description": "Mailbox summary and statistics"
+      "description": "List inboxes at `GET /mailboxes`. Mail, search, and attachments use `/mailbox/{id}/…`."
     },
     {
       "name": "Emails",
@@ -43,13 +39,13 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "API_KEY",
-        "description": "API key authentication. Use format: `Bearer <API_KEY>` or just `<API_KEY>`. \n\n**Note**: All `/api/v1/*` endpoints except `GET /api/v1/health` require an API key."
+        "description": "TropMail API key from the dashboard. Send `Authorization: Bearer <API_KEY>`. Required on every `/api/v1/*` route except `GET /health`."
       }
     },
     "schemas": {
       "StandardResponse": {
         "type": "object",
-        "description": "Standard API response envelope",
+        "description": "Standard JSON envelope. On success `error` is `null` and `data` holds the payload. On failure `success` is false, `data` is `null`, and `message` / `error` explain the problem.",
         "properties": {
           "success": {
             "type": "boolean",
@@ -103,10 +99,6 @@
               }
             }
           },
-          "body": {
-            "type": "string",
-            "description": "Preview snippet (first 100 chars)"
-          },
           "attachmentsCount": {
             "type": "integer",
             "description": "Number of attachments"
@@ -117,7 +109,7 @@
               "Open",
               "Close"
             ],
-            "description": "API friendlier state (Open/Close). DB stores Opened/Closed."
+            "description": "Open or Close"
           },
           "action_status": {
             "type": [
@@ -132,11 +124,15 @@
               "Malicious",
               null
             ],
-            "description": "API friendlier action (Favorite=Saved, Block=Blocked, …)"
+            "description": "Favorite, Block, Phishing, Scam, Malicious, or null"
           },
           "status": {
             "type": "string",
             "description": "Convenience field for UI. If `action_status` is set, matches that; otherwise matches `email_state`."
+          },
+          "preview": {
+            "type": "string",
+            "description": "First ~100 characters of plain text"
           }
         }
       },
@@ -367,6 +363,194 @@
           "stats",
           "engines"
         ]
+      },
+      "MailboxList": {
+        "type": "object",
+        "description": "Inboxes this API key may see. An empty array means this key has no inboxes yet.",
+        "required": [
+          "mailboxes"
+        ],
+        "properties": {
+          "mailboxes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailboxSummary"
+            }
+          }
+        },
+        "example": {
+          "mailboxes": [
+            {
+              "id": "11111111-1111-1111-1111-111111111111",
+              "email": "quiet-otter-1423@tropmail.com",
+              "opened_count": 10,
+              "closed_count": 5,
+              "favorite_count": 2
+            }
+          ]
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "description": "Error envelope. `success` is false; `data` is null.",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Always `false` on errors.",
+            "example": false
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable summary for UI toasts and logs."
+          },
+          "data": {
+            "nullable": true,
+            "description": "Always `null` on errors.",
+            "example": null
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Error detail string when `success` is false."
+          }
+        },
+        "required": [
+          "success",
+          "message",
+          "data",
+          "error"
+        ],
+        "example": {
+          "success": false,
+          "message": "Unauthorized",
+          "data": null,
+          "error": "Missing or invalid API key"
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Invalid request — missing search `query`, malformed UUID, or `limit`/`page` out of range. Envelope with `success: false`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            },
+            "example": {
+              "success": false,
+              "message": "Missing or invalid query",
+              "data": null,
+              "error": "Missing or invalid query"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Missing, malformed, or unknown Bearer API key. Envelope with `success: false`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            },
+            "example": {
+              "success": false,
+              "message": "Unauthorized",
+              "data": null,
+              "error": "Missing or invalid API key"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Plan cannot use the API (Basic/guest) or this key cannot access the mailbox. Envelope with `success: false`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            },
+            "example": {
+              "success": false,
+              "message": "API access requires Pro or above",
+              "data": null,
+              "error": "Tier not allowed"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Mailbox, email, or attachment UUID unknown or out of this key’s scope. Envelope with `success: false`.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            },
+            "example": {
+              "success": false,
+              "message": "Mailbox not found",
+              "data": null,
+              "error": "Mailbox not found"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Account rate limit exceeded (Pro 3/s, Ultimate 10/s, Enterprise 50/s — per account, not per mailbox). Honor `Retry-After` and `X-RateLimit-*`.",
+        "headers": {
+          "Retry-After": {
+            "description": "Seconds to wait before retrying.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Limit": {
+            "description": "Requests per second allowed for this account.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Remaining": {
+            "schema": {
+              "type": "integer"
+            }
+          },
+          "X-RateLimit-Reset": {
+            "description": "Unix timestamp when the current window resets.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            },
+            "example": {
+              "success": false,
+              "message": "Rate limit exceeded",
+              "data": null,
+              "error": "Rate limit exceeded"
+            }
+          }
+        }
+      },
+      "AttachmentUnavailable": {
+        "description": "Attachment exists but bytes are unavailable (too large, still processing, or not stored).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            },
+            "example": {
+              "success": false,
+              "message": "Attachment unavailable",
+              "data": null,
+              "error": "Attachment unavailable"
+            }
+          }
+        }
       }
     }
   },
@@ -395,73 +579,136 @@
               }
             }
           }
-        }
+        },
+        "parameters": [],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS 'https://api.tropmail.com/api/v1/health'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail();\nconst health = await client.health();\nconsole.log(health.status);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    print(client.health().status)"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(\"\")\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\th, err := client.Health(context.Background())\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(h.Status)\n}"
+          }
+        ]
       }
     },
-    "/validate": {
+    "/mailboxes": {
       "get": {
         "tags": [
-          "Authentication"
+          "Mailbox"
         ],
-        "summary": "Validate API key",
-        "description": "Confirm the API key is valid and retrieve the mailbox ID and tier. ",
+        "summary": "List mailboxes",
+        "description": "Inboxes this API key may see. `data.mailboxes` is an array of inbox summaries (it may be empty). Use an `id` from that list on `/mailbox/{id}` routes.",
         "responses": {
           "200": {
-            "description": "API key is valid",
+            "description": "List retrieved. `data.mailboxes` is an array of inbox summaries (may be empty).",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "success": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "example": true
                     },
                     "message": {
-                      "type": "string"
+                      "type": "string",
+                      "example": "Mailboxes retrieved successfully"
                     },
                     "data": {
-                      "type": "object",
-                      "properties": {
-                        "mailbox_id": {
-                          "type": "string",
-                          "format": "uuid"
-                        },
-                        "tier": {
-                          "type": "string",
-                          "enum": [
-                            "Basic",
-                            "Pro",
-                            "Ultimate",
-                            "Enterprise"
-                          ],
-                          "description": "Account tier. Basic/guest access is denied by middleware (403)."
-                        }
-                      }
+                      "$ref": "#/components/schemas/MailboxList"
+                    },
+                    "error": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "example": null
                     }
                   }
+                },
+                "example": {
+                  "success": true,
+                  "message": "Mailboxes retrieved successfully",
+                  "data": {
+                    "mailboxes": [
+                      {
+                        "id": "11111111-1111-1111-1111-111111111111",
+                        "email": "quiet-otter-1423@tropmail.com",
+                        "opened_count": 10,
+                        "closed_count": 5,
+                        "favorite_count": 2
+                      }
+                    ]
+                  },
+                  "error": null
                 }
               }
             }
           },
           "401": {
-            "description": "Invalid API key"
+            "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "Tier restriction (Basic/guest/old/banned)"
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
-        }
+        },
+        "parameters": [],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X GET 'https://api.tropmail.com/api/v1/mailboxes' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\n\nconst { mailboxes } = await client.mailboxes.list();\nconsole.log(mailboxes[0]?.email);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    boxes = client.mailboxes.list()\n    print(boxes[0].email)"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tlisted, err := client.Mailboxes.List(ctx)\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(listed.Mailboxes[0].Email)\n\n}"
+          }
+        ]
       }
     },
-    "/mailbox": {
+    "/mailbox/{id}": {
       "get": {
         "tags": [
           "Mailbox"
         ],
         "summary": "Get mailbox summary",
-        "description": "Retrieve summary statistics for the logged-in mailbox (email address, counts). \n\nStandard success envelope.",
+        "description": "Summary for one mailbox (opened / closed / favorite counts). Unknown or out-of-scope `{id}` → 404.",
         "responses": {
           "200": {
-            "description": "Mailbox retrieved successfully",
+            "description": "One mailbox summary in `data` (not wrapped in `mailboxes`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -486,56 +733,68 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Mailbox UUID"
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X GET 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\n\nconst mailbox = await client.mailboxes.get(mailboxId);\nconsole.log(mailbox.email, mailbox.opened_count);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    mailbox = client.mailboxes.get(mailbox_id)\n    print(mailbox.email, mailbox.opened_count)"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tmailbox, err := client.Mailboxes.Get(ctx, mailboxID)\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(mailbox.Email, mailbox.OpenedCount)\n\n}"
+          }
+        ]
       }
     },
-    "/emails": {
-      "post": {
+    "/mailbox/{id}/emails": {
+      "get": {
         "tags": [
           "Emails"
         ],
         "summary": "List emails",
         "description": "Fetch inbox list with pagination and status filtering. \n\nStandard success envelope.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 100,
-                    "default": 10,
-                    "description": "Items per page (1-100)"
-                  },
-                  "page": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "default": 1,
-                    "description": "Page number (>= 1)"
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "all",
-                      "Open",
-                      "Close",
-                      "Favorite",
-                      "Block",
-                      "Phishing",
-                      "Scam",
-                      "Malicious"
-                    ],
-                    "default": "all",
-                    "description": "Filter by friendlier aliases (DB names also accepted by API)"
-                  }
-                }
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "Emails retrieved successfully",
@@ -567,7 +826,7 @@
                         },
                         "total": {
                           "type": "integer",
-                          "description": "Denormalized opened+closed count from mailboxes"
+                          "description": "Total messages in the mailbox. Always 0 for search."
                         }
                       }
                     }
@@ -575,53 +834,111 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         },
         "security": [
           {
             "BearerAuth": []
           }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Mailbox UUID"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10,
+              "description": "Items per page (1-100)"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "description": "Page number (>= 1)"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "Open",
+                "Close",
+                "Favorite",
+                "Block",
+                "Phishing",
+                "Scam",
+                "Malicious"
+              ],
+              "default": "all",
+              "description": "Filter by status: all, Open, Close, Favorite, Block, Phishing, Scam, Malicious"
+            }
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X GET 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111/emails?limit=10&page=1&status=Open' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\n\nconst page = await client.emails.list({ mailboxId, limit: 10, page: 1, status: \"Open\" });\nconsole.log(page.emails[0]?.subject);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    page = client.emails.list(mailbox_id=mailbox_id, limit=10, page=1, status=\"Open\")\n    print(page.emails[0].subject)"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tpage, err := client.Emails.List(ctx, tropmail.ListOptions{MailboxID: mailboxID, Limit: 10, Page: 1, Status: \"Open\"})\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(page.Emails[0].Subject)\n\n}"
+          }
         ]
       }
     },
-    "/emails/search": {
-      "post": {
+    "/mailbox/{id}/emails/search": {
+      "get": {
         "tags": [
           "Emails"
         ],
         "summary": "Search emails",
         "description": "Full-text search across the authenticated mailbox.\n\nRequires a non-empty `query`. Pagination mirrors list emails (`limit` 1-100, `page` >= 1).",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "query"
-                ],
-                "properties": {
-                  "query": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "Full-text search query"
-                  },
-                  "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 100,
-                    "default": 10
-                  },
-                  "page": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "default": 1
-                  }
-                }
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "Search completed successfully",
@@ -665,26 +982,94 @@
             }
           },
           "400": {
-            "description": "Missing or invalid query"
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
-            "description": "Unauthorized"
+            "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "Tier not allowed"
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           },
           "429": {
-            "description": "Rate limit exceeded"
+            "$ref": "#/components/responses/RateLimited"
           }
         },
         "security": [
           {
             "BearerAuth": []
           }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Mailbox UUID"
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Full-text search query"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X GET 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111/emails/search?query=verification&limit=10&page=1' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\n\nconst page = await client.emails.search({ mailboxId, query: \"verification\", limit: 10 });\nconsole.log(page.emails[0]?.subject);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    page = client.emails.search(mailbox_id=mailbox_id, query=\"verification\", limit=10)\n    print(page.emails[0].subject)"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tpage, err := client.Emails.Search(ctx, \"verification\", tropmail.ListOptions{MailboxID: mailboxID, Limit: 10})\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(page.Emails[0].Subject)\n\n}"
+          }
         ]
       }
     },
-    "/email/{id}": {
+    "/mailbox/{id}/emails/{emailId}": {
       "get": {
         "tags": [
           "Emails"
@@ -699,7 +1084,18 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
+            },
+            "description": "Mailbox UUID"
+          },
+          {
+            "name": "emailId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Email UUID"
           },
           {
             "name": "timestamp",
@@ -733,8 +1129,47 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X GET 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111/emails/550e8400-e29b-41d4-a716-446655440001' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\nconst emailId = \"550e8400-e29b-41d4-a716-446655440001\";\n\nconst detail = await client.emails.get(mailboxId, emailId);\nconsole.log(detail.subject);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    detail = client.emails.get(mailbox_id, \"550e8400-e29b-41d4-a716-446655440001\")\n    print(detail.subject)"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tdetail, err := client.Emails.Get(ctx, mailboxID, \"550e8400-e29b-41d4-a716-446655440001\", tropmail.GetOptions{})\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(detail.Subject)\n}\n"
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -750,7 +1185,18 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
+            },
+            "description": "Mailbox UUID"
+          },
+          {
+            "name": "emailId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Email UUID"
           }
         ],
         "requestBody": {
@@ -766,7 +1212,7 @@
                       "Open",
                       "Close"
                     ],
-                    "description": "Friendlier API state (Open/Close)"
+                    "description": "Open or Close"
                   },
                   "action_status": {
                     "type": "string",
@@ -801,17 +1247,56 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X POST 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111/emails/550e8400-e29b-41d4-a716-446655440001' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"email_state\":\"Open\",\"action_status\":\"Favorite\"}'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\nconst emailId = \"550e8400-e29b-41d4-a716-446655440001\";\n\nawait client.emails.update(mailboxId, emailId, {\n  emailState: \"Open\",\n  actionStatus: \"Favorite\",\n});"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    client.emails.update(mailbox_id, \"550e8400-e29b-41d4-a716-446655440001\", email_state=\"Open\", action_status=\"Favorite\")"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tstatus := tropmail.ActionFavorite\n\t_, err = client.Emails.Update(ctx, mailboxID, \"550e8400-e29b-41d4-a716-446655440001\", tropmail.UpdateOptions{\n\t\tEmailState:   tropmail.StateOpen,\n\t\tActionStatus: &status,\n\t})\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n}\n"
+          }
+        ]
       }
     },
-    "/email/{id}/{view}": {
+    "/mailbox/{id}/emails/{emailId}/{view}": {
       "get": {
         "tags": [
           "Emails"
         ],
         "summary": "Get email detail in specific view",
-        "description": "Retrieve email details with content rendered in a specific format (`text`, `html`, `markdown`).\n\nFor `markdown`: returns markdown immediately when already available. If not, conversion starts automatically and this request waits until it finishes (up to ~60s). Concurrent callers share the same conversion. Timeout → 504; retry the same GET.",
+        "description": "Retrieve email details with content rendered in a specific format (`text`, `html`, `markdown`).\n\nFor `markdown`: returns markdown immediately when already available. If not, this request waits until conversion finishes (up to about 60 seconds). Timeout is 504; retry the same GET.",
         "parameters": [
           {
             "name": "id",
@@ -820,7 +1305,18 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
+            },
+            "description": "Mailbox UUID"
+          },
+          {
+            "name": "emailId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Email UUID"
           },
           {
             "name": "view",
@@ -834,7 +1330,7 @@
                 "markdown"
               ]
             },
-            "description": "Content format"
+            "description": "Content format: text, html, or markdown"
           },
           {
             "name": "timestamp",
@@ -868,11 +1364,214 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X GET 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111/emails/550e8400-e29b-41d4-a716-446655440001/text' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\nconst emailId = \"550e8400-e29b-41d4-a716-446655440001\";\n\nconst detail = await client.emails.get(mailboxId, emailId, { view: \"text\" });\nconsole.log(detail.content);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    detail = client.emails.get(mailbox_id, \"550e8400-e29b-41d4-a716-446655440001\", view=\"text\")\n    print(detail.content)"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tdetail, err := client.Emails.Get(ctx, mailboxID, \"550e8400-e29b-41d4-a716-446655440001\", tropmail.GetOptions{View: \"text\"})\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(detail.Content)\n\n}"
+          }
+        ]
       }
     },
-    "/attachment/{id}": {
+    "/mailbox/{id}/emails/{emailId}/scan-attachments": {
+      "post": {
+        "tags": [
+          "Attachments"
+        ],
+        "summary": "Scan all attachments",
+        "description": "Trigger scans for **all** attachments in an email (only those currently `NotScanned`).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Mailbox UUID"
+          },
+          {
+            "name": "emailId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Email UUID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scans initiated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X POST 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111/emails/550e8400-e29b-41d4-a716-446655440001/scan-attachments' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\nconst emailId = \"550e8400-e29b-41d4-a716-446655440001\";\n\nconst scans = await client.emails.scanAttachments(mailboxId, emailId);\nconsole.log(scans);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    print(client.emails.scan_attachments(mailbox_id, \"550e8400-e29b-41d4-a716-446655440001\"))"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tscans, err := client.Emails.ScanAttachments(ctx, mailboxID, \"550e8400-e29b-41d4-a716-446655440001\")\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(scans)\n\n}"
+          }
+        ]
+      }
+    },
+    "/mailbox/{id}/emails/{emailId}/download-attachments": {
+      "get": {
+        "tags": [
+          "Attachments"
+        ],
+        "summary": "List attachments for download",
+        "description": "List attachments on an email with an `available` flag. Fetch bytes via GET /mailbox/{id}/attachments/{attId}/download.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Mailbox UUID"
+          },
+          {
+            "name": "emailId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Email UUID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Download links retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X GET 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111/emails/550e8400-e29b-41d4-a716-446655440001/download-attachments' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\nconst emailId = \"550e8400-e29b-41d4-a716-446655440001\";\n\nconst files = await client.emails.downloadAttachments(mailboxId, emailId);\nconsole.log(files[0]?.filename);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    files = client.emails.download_attachments(mailbox_id, \"550e8400-e29b-41d4-a716-446655440001\")\n    print(files[0].filename)"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tfiles, err := client.Emails.DownloadAttachments(ctx, mailboxID, \"550e8400-e29b-41d4-a716-446655440001\")\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(files[0].Filename)\n\n}"
+          }
+        ]
+      }
+    },
+    "/mailbox/{id}/attachments/{attId}": {
       "get": {
         "tags": [
           "Attachments"
@@ -887,7 +1586,18 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
+            },
+            "description": "Mailbox UUID"
+          },
+          {
+            "name": "attId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Attachment UUID"
           }
         ],
         "responses": {
@@ -917,11 +1627,50 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X GET 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111/attachments/660e8400-e29b-41d4-a716-446655440002' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\nconst attachmentId = \"660e8400-e29b-41d4-a716-446655440002\";\n\nconst meta = await client.attachments.get(mailboxId, attachmentId);\nconsole.log(meta.filename, meta.scan_status);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    meta = client.attachments.get(mailbox_id, \"660e8400-e29b-41d4-a716-446655440002\")\n    print(meta.filename, meta.scan_status)"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tmeta, err := client.Attachments.Get(ctx, mailboxID, \"660e8400-e29b-41d4-a716-446655440002\")\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(meta.Filename, meta.ScanStatus)\n\n}"
+          }
+        ]
       }
     },
-    "/attachment/{id}/scan": {
+    "/mailbox/{id}/attachments/{attId}/scan": {
       "post": {
         "tags": [
           "Attachments"
@@ -936,7 +1685,18 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
+            },
+            "description": "Mailbox UUID"
+          },
+          {
+            "name": "attId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Attachment UUID"
           }
         ],
         "responses": {
@@ -949,11 +1709,50 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-sourcey-code-samples": [
+          {
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X POST 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111/attachments/660e8400-e29b-41d4-a716-446655440002/scan' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY' \\\n  -H 'Accept: application/json'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\nconst attachmentId = \"660e8400-e29b-41d4-a716-446655440002\";\n\nconst scan = await client.attachments.scan(mailboxId, attachmentId);\nconsole.log(scan.scan_status);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    scan = client.attachments.scan(mailbox_id, \"660e8400-e29b-41d4-a716-446655440002\")\n    print(scan.scan_status)"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tscan, err := client.Attachments.Scan(ctx, mailboxID, \"660e8400-e29b-41d4-a716-446655440002\")\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(scan.ScanStatus)\n\n}"
+          }
+        ]
       }
     },
-    "/attachment/{id}/download": {
+    "/mailbox/{id}/attachments/{attId}/download": {
       "get": {
         "tags": [
           "Attachments"
@@ -968,7 +1767,18 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
+            },
+            "description": "Mailbox UUID"
+          },
+          {
+            "name": "attId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Attachment UUID"
           }
         ],
         "responses": {
@@ -992,76 +1802,48 @@
             }
           },
           "400": {
-            "description": "Attachment unavailable"
+            "$ref": "#/components/responses/AttachmentUnavailable"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "404": {
-            "description": "Attachment not found"
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
-        }
-      }
-    },
-    "/email/{id}/scan-attachments": {
-      "post": {
-        "tags": [
-          "Attachments"
-        ],
-        "summary": "Scan all attachments",
-        "description": "Trigger scans for **all** attachments in an email (only those currently `NotScanned`).",
-        "parameters": [
+        },
+        "security": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
+            "BearerAuth": []
           }
         ],
-        "responses": {
-          "200": {
-            "description": "Scans initiated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StandardResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/email/{id}/download-attachments": {
-      "get": {
-        "tags": [
-          "Attachments"
-        ],
-        "summary": "List attachments for download",
-        "description": "List attachments on an email with an `available` flag. Fetch bytes via GET /attachment/{id}/download for each id.",
-        "parameters": [
+        "x-sourcey-code-samples": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
+            "lang": "bash",
+            "label": "cURL",
+            "source": "curl -sS -X GET 'https://api.tropmail.com/api/v1/mailbox/11111111-1111-1111-1111-111111111111/attachments/660e8400-e29b-41d4-a716-446655440002/download' \\\n  -H 'Authorization: Bearer $TROPMAIL_API_KEY'"
+          },
+          {
+            "lang": "typescript",
+            "label": "TypeScript",
+            "source": "import { TropMail } from \"@tropmail/sdk\";\n\nconst client = new TropMail({ apiKey: process.env.TROPMAIL_API_KEY! });\nconst mailboxId = \"11111111-1111-1111-1111-111111111111\";\nconst attachmentId = \"660e8400-e29b-41d4-a716-446655440002\";\n\nconst res = await client.attachments.download(mailboxId, attachmentId);\nconst bytes = await res.arrayBuffer();\nconsole.log(bytes.byteLength);"
+          },
+          {
+            "lang": "python",
+            "label": "Python",
+            "source": "from tropmail import TropMail\n\nwith TropMail() as client:\n    mailbox_id = \"11111111-1111-1111-1111-111111111111\"\n    path = client.attachments.download_to(mailbox_id, \"660e8400-e29b-41d4-a716-446655440002\", \"/tmp/attachment.bin\")\n    print(path)\n"
+          },
+          {
+            "lang": "go",
+            "label": "Go",
+            "source": "package main\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"os\"\n\n\ttropmail \"github.com/tropmail/tropmail-go\"\n)\n\nfunc main() {\n\tclient, err := tropmail.New(os.Getenv(\"TROPMAIL_API_KEY\"))\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tctx := context.Background()\n\tmailboxID := \"11111111-1111-1111-1111-111111111111\"\n\tn, err := client.Attachments.DownloadTo(ctx, mailboxID, \"660e8400-e29b-41d4-a716-446655440002\", \"/tmp/attachment.bin\")\n\tif err != nil {\n\t\tlog.Fatal(err)\n\t}\n\tfmt.Println(n)\n}\n"
           }
-        ],
-        "responses": {
-          "200": {
-            "description": "Download links retrieved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StandardResponse"
-                }
-              }
-            }
-          }
-        }
+        ]
       }
     }
   }

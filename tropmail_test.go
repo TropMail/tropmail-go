@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
 
 const testAPIKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+const testMailboxID = "550e8400-e29b-41d4-a716-446655440000"
 
 type recordedRequest struct {
 	Method string
@@ -102,7 +104,7 @@ func TestSendsBearerTokenAndRequestID(t *testing.T) {
 		writeEnvelope(t, w, http.StatusOK, Mailbox{ID: "m1", Email: "a@b.dev"})
 	})
 
-	if _, err := client.Mailbox.Get(context.Background()); err != nil {
+	if _, err := client.Mailboxes.Get(context.Background(), testMailboxID); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 
@@ -113,7 +115,7 @@ func TestSendsBearerTokenAndRequestID(t *testing.T) {
 	if got.Header.Get("X-Request-ID") == "" {
 		t.Error("missing X-Request-ID")
 	}
-	if got.Path != "/api/v1/mailbox" {
+	if got.Path != "/api/v1/mailboxes/"+testMailboxID {
 		t.Errorf("path = %q", got.Path)
 	}
 }
@@ -123,7 +125,7 @@ func TestHealthOmitsAuthorization(t *testing.T) {
 		writeEnvelope(t, w, http.StatusOK, Health{Status: "ok", Version: "1.0.0"})
 	})
 
-	health, err := client.Mailbox.Health(context.Background())
+	health, err := client.Health(context.Background())
 	if err != nil {
 		t.Fatalf("Health: %v", err)
 	}
@@ -142,7 +144,7 @@ func TestUnwrapsEnvelope(t *testing.T) {
 		})
 	})
 
-	mailbox, err := client.Mailbox.Get(context.Background())
+	mailbox, err := client.Mailboxes.Get(context.Background(), testMailboxID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -151,18 +153,18 @@ func TestUnwrapsEnvelope(t *testing.T) {
 	}
 }
 
-func TestListSendsBodyDefaults(t *testing.T) {
+func TestListSendsQueryDefaults(t *testing.T) {
 	client, recorded := testServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		writeEnvelope(t, w, http.StatusOK, EmailList{Limit: 10, Page: 1})
 	})
 
-	if _, err := client.Emails.List(context.Background(), ListOptions{}); err != nil {
+	if _, err := client.Emails.List(context.Background(), ListOptions{MailboxID: testMailboxID}); err != nil {
 		t.Fatalf("List: %v", err)
 	}
 
-	body := (*recorded)[0].Body
-	if body["limit"] != float64(10) || body["page"] != float64(1) || body["status"] != "all" {
-		t.Errorf("body = %+v", body)
+	q := (*recorded)[0].Query
+	if !strings.Contains(q, "limit=10") || !strings.Contains(q, "page=1") || !strings.Contains(q, "status=all") {
+		t.Errorf("query = %q", q)
 	}
 }
 
@@ -172,22 +174,22 @@ func TestDetailPathAndTimestampForwarding(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	if _, err := client.Emails.Get(ctx, "abc", GetOptions{}); err != nil {
+	if _, err := client.Emails.Get(ctx, testMailboxID, "abc", GetOptions{}); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if _, err := client.Emails.Get(ctx, "abc", GetOptions{View: ViewText}); err != nil {
+	if _, err := client.Emails.Get(ctx, testMailboxID, "abc", GetOptions{View: ViewText}); err != nil {
 		t.Fatalf("Get text: %v", err)
 	}
 	email := Email{ID: "abc", Timestamp: "2026-01-01T00:00:00Z"}
-	if _, err := client.Emails.GetEmail(ctx, email, ViewHTML); err != nil {
+	if _, err := client.Emails.GetEmail(ctx, testMailboxID, email, ViewHTML); err != nil {
 		t.Fatalf("GetEmail: %v", err)
 	}
 
 	calls := *recorded
-	if calls[0].Path != "/api/v1/email/abc" {
+	if calls[0].Path != "/api/v1/mailboxes/"+testMailboxID+"/emails/abc" {
 		t.Errorf("html path = %q", calls[0].Path)
 	}
-	if calls[1].Path != "/api/v1/email/abc/text" {
+	if calls[1].Path != "/api/v1/mailboxes/"+testMailboxID+"/emails/abc/text" {
 		t.Errorf("text path = %q", calls[1].Path)
 	}
 	if calls[2].Query != "timestamp=2026-01-01T00%3A00%3A00Z" {
@@ -200,7 +202,7 @@ func TestUpdateRequiresAField(t *testing.T) {
 		writeEnvelope(t, w, http.StatusOK, ActionResult{})
 	})
 
-	if _, err := client.Emails.Update(context.Background(), "abc", UpdateOptions{}); err == nil {
+	if _, err := client.Emails.Update(context.Background(), testMailboxID, "abc", UpdateOptions{}); err == nil {
 		t.Fatal("expected ErrNoUpdateFields")
 	}
 }
@@ -210,7 +212,7 @@ func TestClearActionSendsEmptyString(t *testing.T) {
 		writeEnvelope(t, w, http.StatusOK, ActionResult{})
 	})
 
-	if _, err := client.Emails.ClearAction(context.Background(), "abc"); err != nil {
+	if _, err := client.Emails.ClearAction(context.Background(), testMailboxID, "abc"); err != nil {
 		t.Fatalf("ClearAction: %v", err)
 	}
 	if got := (*recorded)[0].Body["action_status"]; got != "" {
@@ -226,7 +228,7 @@ func TestBlockParsesSenderEmail(t *testing.T) {
 		})
 	})
 
-	result, err := client.Emails.Block(context.Background(), "abc")
+	result, err := client.Emails.Block(context.Background(), testMailboxID, "abc")
 	if err != nil {
 		t.Fatalf("Block: %v", err)
 	}
@@ -249,7 +251,7 @@ func TestRateLimitSnapshot(t *testing.T) {
 	if got := client.RateLimit(); got.Limit != 0 {
 		t.Errorf("limit before request = %d", got.Limit)
 	}
-	if _, err := client.Mailbox.Get(context.Background()); err != nil {
+	if _, err := client.Mailboxes.Get(context.Background(), testMailboxID); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 
@@ -269,7 +271,7 @@ func TestScanAttachmentsDecodesList(t *testing.T) {
 		})
 	})
 
-	scans, err := client.Emails.ScanAttachments(context.Background(), "e1")
+	scans, err := client.Emails.ScanAttachments(context.Background(), testMailboxID, "e1")
 	if err != nil {
 		t.Fatalf("ScanAttachments: %v", err)
 	}
@@ -287,7 +289,7 @@ func TestContextCancellationStopsRequest(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 
-	if _, err := client.Mailbox.Get(ctx); err == nil {
+	if _, err := client.Mailboxes.Get(ctx, testMailboxID); err == nil {
 		t.Fatal("expected context deadline error")
 	}
 }

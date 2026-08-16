@@ -5,35 +5,39 @@ import (
 	"net/http"
 )
 
-// MailboxService covers /mailbox, /validate and /health.
-type MailboxService struct {
+// MailboxesService covers GET /mailboxes and GET /mailboxes/{id}.
+type MailboxesService struct {
 	client *Client
 }
 
-// Get returns the mailbox summary for the authenticated key.
-func (s *MailboxService) Get(ctx context.Context) (*Mailbox, error) {
-	var out Mailbox
-	err := s.client.do(ctx, request{method: http.MethodGet, path: "/mailbox"}, &out)
+// List returns every inbox the API key may see.
+// Empty key scope means all current and future inboxes for the account.
+func (s *MailboxesService) List(ctx context.Context) (*MailboxList, error) {
+	var out MailboxList
+	err := s.client.do(ctx, request{method: http.MethodGet, path: "/mailboxes"}, &out)
 	if err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-// Validate confirms the API key and reports its mailbox id and tier.
-func (s *MailboxService) Validate(ctx context.Context) (*Validation, error) {
-	var out Validation
-	err := s.client.do(ctx, request{method: http.MethodGet, path: "/validate"}, &out)
+// Get returns the summary for one mailbox UUID.
+func (s *MailboxesService) Get(ctx context.Context, mailboxID string) (*Mailbox, error) {
+	path, err := mailboxPath(mailboxID)
 	if err != nil {
+		return nil, err
+	}
+	var out Mailbox
+	if err := s.client.do(ctx, request{method: http.MethodGet, path: path}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
 // Health is a liveness probe. It requires no authentication.
-func (s *MailboxService) Health(ctx context.Context) (*Health, error) {
+func (c *Client) Health(ctx context.Context) (*Health, error) {
 	var out Health
-	err := s.client.do(
+	err := c.do(
 		ctx,
 		request{method: http.MethodGet, path: "/health", noAuth: true},
 		&out,

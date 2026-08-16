@@ -28,7 +28,7 @@ func TestErrorMapping(t *testing.T) {
 				writeError(w, tc.status, "boom")
 			})
 
-			_, err := client.Mailbox.Get(context.Background())
+			_, err := client.Mailboxes.Get(context.Background(), testMailboxID)
 			if err == nil {
 				t.Fatal("expected an error")
 			}
@@ -59,7 +59,7 @@ func TestPlainTextNotFoundIsStillTyped(t *testing.T) {
 		_, _ = w.Write([]byte("Not Found"))
 	})
 
-	_, err := client.Mailbox.Get(context.Background())
+	_, err := client.Mailboxes.Get(context.Background(), testMailboxID)
 	if !IsNotFound(err) {
 		t.Fatalf("expected a 404, got %v", err)
 	}
@@ -76,7 +76,7 @@ func TestRetryAfterIsCarried(t *testing.T) {
 		writeError(w, http.StatusTooManyRequests, "Rate limit exceeded")
 	})
 
-	_, err := client.Mailbox.Get(context.Background())
+	_, err := client.Mailboxes.Get(context.Background(), testMailboxID)
 	var apiErr *Error
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("errors.As failed: %v", err)
@@ -92,7 +92,7 @@ func TestSuccessFalseOn200IsAnError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"success":false,"message":"nope","data":null,"error":"nope"}`))
 	})
 
-	_, err := client.Mailbox.Get(context.Background())
+	_, err := client.Mailboxes.Get(context.Background(), testMailboxID)
 	var apiErr *Error
 	if !errors.As(err, &apiErr) || apiErr.Message != "nope" {
 		t.Fatalf("unexpected error: %v", err)
@@ -110,7 +110,7 @@ func TestTransportFailureIsConnectionError(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	_, err = client.Mailbox.Get(context.Background())
+	_, err = client.Mailboxes.Get(context.Background(), testMailboxID)
 	if err == nil {
 		t.Fatal("expected a connection error")
 	}

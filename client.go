@@ -6,7 +6,7 @@
 //	if err != nil {
 //		return err
 //	}
-//	mailbox, err := client.Mailbox.Get(ctx)
+//	listed, err := client.Mailboxes.List(ctx)
 //
 // Every call takes a [context.Context]. Reads are retried with jittered backoff;
 // mutations are not.
@@ -42,19 +42,13 @@ const (
 )
 
 // Version is the SDK version reported in the User-Agent header.
-const Version = "1.0.0"
+const Version = "1.1.0"
 
 var retryableStatuses = map[int]bool{
 	http.StatusTooManyRequests:    true,
 	http.StatusBadGateway:         true,
 	http.StatusServiceUnavailable: true,
 	http.StatusGatewayTimeout:     true,
-}
-
-// readOnlyPostPaths are POST endpoints that only read, so they are safe to retry.
-var readOnlyPostPaths = map[string]bool{
-	"/emails":        true,
-	"/emails/search": true,
 }
 
 // Client is a TropMail API client. It is safe for concurrent use.
@@ -69,11 +63,11 @@ type Client struct {
 	rateLimitMu sync.RWMutex
 	rateLimit   RateLimitSnapshot
 
-	// Mailbox covers /mailbox, /validate and /health.
-	Mailbox *MailboxService
-	// Emails covers /emails and /email/{id}.
+	// Mailboxes covers GET /mailboxes and GET /mailboxes/{id}.
+	Mailboxes *MailboxesService
+	// Emails covers /mailboxes/{id}/emails.
 	Emails *EmailsService
-	// Attachments covers /attachment/{id}.
+	// Attachments covers /mailboxes/{id}/attachments/{attId}.
 	Attachments *AttachmentsService
 }
 
@@ -173,7 +167,7 @@ func New(apiKey string, opts ...Option) (*Client, error) {
 		opt(c)
 	}
 
-	c.Mailbox = &MailboxService{client: c}
+	c.Mailboxes = &MailboxesService{client: c}
 	c.Emails = &EmailsService{client: c}
 	c.Attachments = &AttachmentsService{client: c}
 	return c, nil
@@ -210,7 +204,7 @@ func (r request) retryable() bool {
 	if r.method == http.MethodGet {
 		return true
 	}
-	return r.method == http.MethodPost && readOnlyPostPaths[r.path]
+	return false
 }
 
 func fullJitter(attempt int) time.Duration {

@@ -1,7 +1,7 @@
 // Command attachments scans and downloads every attachment on one email.
 //
 //	export TROPMAIL_API_KEY=...
-//	go run ./examples/attachments <email-id> ./downloads
+//	go run ./examples/attachments <mailbox-id> <email-id> ./downloads
 package main
 
 import (
@@ -15,13 +15,14 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal("usage: attachments <email-id> [directory]")
+	if len(os.Args) < 3 {
+		log.Fatal("usage: attachments <mailbox-id> <email-id> [directory]")
 	}
-	emailID := os.Args[1]
+	mailboxID := os.Args[1]
+	emailID := os.Args[2]
 	directory := "."
-	if len(os.Args) > 2 {
-		directory = os.Args[2]
+	if len(os.Args) > 3 {
+		directory = os.Args[3]
 	}
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		log.Fatal(err)
@@ -35,7 +36,7 @@ func main() {
 
 	// Scanning is asynchronous: a fresh request comes back as Processing and
 	// the verdict lands on a later read.
-	scans, err := client.Emails.ScanAttachments(ctx, emailID)
+	scans, err := client.Emails.ScanAttachments(ctx, mailboxID, emailID)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -43,7 +44,7 @@ func main() {
 		fmt.Printf("%-40s %s\n", scan.Filename, scan.ScanStatus)
 	}
 
-	items, err := client.Emails.DownloadAttachments(ctx, emailID)
+	items, err := client.Emails.DownloadAttachments(ctx, mailboxID, emailID)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func main() {
 		}
 		// filepath.Base keeps a server-supplied name from escaping the directory.
 		target := filepath.Join(directory, filepath.Base(item.Filename))
-		written, err := client.Attachments.DownloadTo(ctx, item.AttachmentID, target)
+		written, err := client.Attachments.DownloadTo(ctx, mailboxID, item.AttachmentID, target)
 		if err != nil {
 			log.Fatalf("download %s: %v", item.AttachmentID, err)
 		}

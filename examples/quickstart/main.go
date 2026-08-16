@@ -15,8 +15,6 @@ import (
 )
 
 func main() {
-	// An empty key falls back to TROPMAIL_API_KEY, and is validated locally so
-	// a malformed key fails before spending a round trip.
 	client, err := tropmail.New("")
 	if err != nil {
 		log.Fatal(err)
@@ -25,14 +23,19 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	mailbox, err := client.Mailbox.Get(ctx)
+	listed, err := client.Mailboxes.List(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
+	if len(listed.Mailboxes) == 0 {
+		fmt.Println("This API key has no mailboxes.")
+		return
+	}
+	mailbox := listed.Mailboxes[0]
 	fmt.Printf("%s — %d open, %d closed, %d favorite\n\n",
 		mailbox.Email, mailbox.OpenedCount, mailbox.ClosedCount, mailbox.FavoriteCount)
 
-	page, err := client.Emails.List(ctx, tropmail.ListOptions{Limit: 5})
+	page, err := client.Emails.List(ctx, tropmail.ListOptions{MailboxID: mailbox.ID, Limit: 5})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -46,10 +49,8 @@ func main() {
 			email.From.Address, truncate(email.Subject, 40), email.Timestamp)
 	}
 
-	// Passing the email rather than its id forwards the timestamp for a
-	// faster lookup.
 	newest := page.Emails[0]
-	detail, err := client.Emails.GetEmail(ctx, newest, tropmail.ViewText)
+	detail, err := client.Emails.GetEmail(ctx, mailbox.ID, newest, tropmail.ViewText)
 	if err != nil {
 		var apiErr *tropmail.Error
 		if errors.As(err, &apiErr) {
