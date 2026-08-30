@@ -104,9 +104,18 @@ type EmailAttachment struct {
 	Filename     *string     `json:"filename,omitempty"`
 	Size         *int64      `json:"size,omitempty"`
 	MimeType     *string     `json:"mime_type,omitempty"`
+	ContentID    *string     `json:"content_id,omitempty"`
+	Disposition  *string     `json:"disposition,omitempty"`
 	ScanStatus   ScanStatus  `json:"scan_status"`
 	ScanResult   *ScanReport `json:"scan_result,omitempty"`
 	ScannedAt    *string     `json:"scanned_at,omitempty"`
+}
+
+// EmailParts is optional MIME extras from inbound (newer mail only).
+type EmailParts struct {
+	ListUnsubscribe map[string]any    `json:"listUnsubscribe,omitempty"`
+	Calendar        map[string]any    `json:"calendar,omitempty"`
+	InlineCids      map[string]string `json:"inlineCids,omitempty"`
 }
 
 // EmailDetail is the full email returned by Emails.Get.
@@ -122,6 +131,7 @@ type EmailDetail struct {
 	EmailState   EmailState        `json:"email_state"`
 	ActionStatus *ActionStatus     `json:"action_status,omitempty"`
 	Attachments  []EmailAttachment `json:"attachments"`
+	Parts        *EmailParts       `json:"parts,omitempty"`
 	Headers      map[string]any    `json:"headers"`
 	Security     map[string]any    `json:"security"`
 }
@@ -169,6 +179,8 @@ type Attachment struct {
 	Filename     string      `json:"filename"`
 	Size         *int64      `json:"size,omitempty"`
 	MimeType     *string     `json:"mime_type,omitempty"`
+	ContentID    *string     `json:"content_id,omitempty"`
+	Disposition  *string     `json:"disposition,omitempty"`
 	ScanStatus   ScanStatus  `json:"scan_status"`
 	ScanResult   *ScanReport `json:"scan_result,omitempty"`
 	ScannedAt    *string     `json:"scanned_at,omitempty"`
