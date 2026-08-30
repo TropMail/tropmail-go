@@ -42,7 +42,7 @@ const (
 )
 
 // Version is the SDK version reported in the User-Agent header.
-const Version = "1.1.0"
+const Version = "1.2.0"
 
 var retryableStatuses = map[int]bool{
 	http.StatusTooManyRequests:    true,
