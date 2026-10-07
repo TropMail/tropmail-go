@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "TropMail API",
-    "description": "Private inbound email API for TropMail.\n\nCreate addresses that only receive mail. List, search, read, and update messages; scan and download attachments. Official SDKs and MCP use the same contract.\n\n## Base URL\n- **Production**: `https://api.tropmail.com/api/v1`\n\n## Authentication\nAPI keys from the TropMail dashboard (Pro and above). Keys are 32 alphanumeric characters, optionally prefixed with `tm_live_`. Send `Authorization: Bearer <API_KEY>`.\n\n## Rate limiting\nPer **account** by plan (Pro 3 / Ultimate 10 / Enterprise 50 requests per second) — not per mailbox or per key. Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`. On **429**, honor `Retry-After`.\n\n## Response envelope\nJSON responses use `{success,message,data,error}`. `success` is `true` and `error` is `null` on 200; on errors `success` is `false`, `data` is `null`, and `message`/`error` explain what happened. Correlate with `X-Request-ID`.\n\nMCP tools receive the unwrapped `data` object, not this envelope. Attachment **download** routes return raw bytes, not JSON.",
+    "description": "Private inbound email API for TropMail.\n\nCreate addresses that only receive mail. List, search, read, and update messages; scan and download attachments. Official SDKs and MCP use the same contract.\n\n## Base URL\n- **Production**: `https://api.tropmail.com/api/v1`\n\n## Authentication\nAPI keys from the TropMail dashboard (Pro and above). Dashboard keys start with `tm_live_`. Copy the entire secret, including the prefix. Send `Authorization: Bearer YOUR_API_KEY`.\n\n## Rate limiting\nPer **account** by plan (Pro 3 / Ultimate 10 / Enterprise 50 requests per second) — not per mailbox or per key. Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`. On **429**, honor `Retry-After`.\n\n## Response envelope\nJSON responses use `{success,message,data,error}`. `success` is `true` and `error` is `null` on 200; on errors `success` is `false`, `data` is `null`, and `message`/`error` explain what happened. Correlate with `X-Request-ID`.\n\nMCP tools receive the unwrapped `data` object, not this envelope. Attachment **download** routes return raw bytes, not JSON.",
     "version": "1.0.0",
     "contact": {
       "name": "TropMail Support",
@@ -22,7 +22,7 @@
     },
     {
       "name": "Mailbox",
-      "description": "List inboxes at `GET /mailboxes`. Mail, search, and attachments use `/mailbox/{id}/…`."
+      "description": "List inboxes at `GET /mailboxes`. Mail, search, and attachments use the canonical path `/mailbox/{id}/…`. `/mailboxes/{id}/…` is a compatibility alias of that path (the SDKs call the alias). It is not a second resource. Deleted messages are omitted from client reads; `Delete` is a write action, not a list filter."
     },
     {
       "name": "Emails",
@@ -39,7 +39,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "API_KEY",
-        "description": "TropMail API key from the dashboard. Send `Authorization: Bearer <API_KEY>`. Required on every `/api/v1/*` route except `GET /health`."
+        "description": "TropMail API key from the dashboard. Dashboard keys start with `tm_live_`. Copy the entire secret. Send `Authorization: Bearer YOUR_API_KEY`. Required on every `/api/v1/*` route except `GET /health`."
       }
     },
     "schemas": {

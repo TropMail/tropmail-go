@@ -1,7 +1,7 @@
 # Go examples
 
 ```bash
-export TROPMAIL_API_KEY=your32charalphanumericapikeyhere
+export TROPMAIL_API_KEY=YOUR_API_KEY
 ```
 
 | Directory | What it shows |
