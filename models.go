@@ -138,8 +138,8 @@ type EmailDetail struct {
 
 // EmailList is a page of emails.
 //
-// Total is the mailbox-wide opened+closed count for List and is always 0 for
-// Search. Never use it to drive pagination; stop on a short page instead.
+// Total on List is the mailbox opened count plus closed count. Total on
+// Search is the match count. Iterators still stop on a short page.
 type EmailList struct {
 	Emails []Email `json:"emails"`
 	Total  int     `json:"total"`

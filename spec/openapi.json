@@ -905,7 +905,7 @@
                         },
                         "total": {
                           "type": "integer",
-                          "description": "Total messages in the mailbox. Always 0 for search."
+                          "description": "Search match count. Independent of limit and page, so an empty page still reports how many messages matched."
                         }
                       }
                     }

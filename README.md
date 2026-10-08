@@ -62,8 +62,8 @@ for email, err := range client.Emails.SearchAll(ctx, "invoice", tropmail.ListOpt
 }
 ```
 
-The iterators stop on the first short page. `Total` counts the whole mailbox on
-list calls and is always `0` for search, so it cannot end a filtered scan.
+The iterators stop on the first short page. `Total` on list is the mailbox
+opened count plus closed count. `Total` on search is the match count.
 
 ## Reading an email
 
