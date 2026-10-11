@@ -98,6 +98,7 @@ detail, err := client.Emails.GetMarkdown(ctx, mailbox.ID, email.ID, email.Timest
 client.Emails.Favorite(ctx, mailbox.ID, id)
 client.Emails.SetState(ctx, mailbox.ID, id, tropmail.StateClose)
 client.Emails.Block(ctx, mailbox.ID, id)       // also blocks the sender
+client.Emails.ReportPhishing(ctx, mailbox.ID, id) // files a report; does not block future mail
 client.Emails.ClearAction(ctx, mailbox.ID, id) // clears it, unblocking the sender
 ```
 

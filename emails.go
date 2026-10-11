@@ -340,6 +340,21 @@ func (s *EmailsService) Block(ctx context.Context, mailboxID, emailID string) (*
 	return s.SetAction(ctx, mailboxID, emailID, ActionBlock)
 }
 
+// ReportPhishing files the message as phishing. It leaves the inbox and does not block future mail.
+func (s *EmailsService) ReportPhishing(ctx context.Context, mailboxID, emailID string) (*ActionResult, error) {
+	return s.SetAction(ctx, mailboxID, emailID, ActionPhishing)
+}
+
+// ReportScam files the message as a scam. It leaves the inbox and does not block future mail.
+func (s *EmailsService) ReportScam(ctx context.Context, mailboxID, emailID string) (*ActionResult, error) {
+	return s.SetAction(ctx, mailboxID, emailID, ActionScam)
+}
+
+// ReportMalicious files the message as malicious. It leaves the inbox and does not block future mail.
+func (s *EmailsService) ReportMalicious(ctx context.Context, mailboxID, emailID string) (*ActionResult, error) {
+	return s.SetAction(ctx, mailboxID, emailID, ActionMalicious)
+}
+
 // Delete soft-deletes an email.
 func (s *EmailsService) Delete(ctx context.Context, mailboxID, emailID string) (*ActionResult, error) {
 	return s.SetAction(ctx, mailboxID, emailID, ActionDelete)
